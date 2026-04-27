@@ -29,7 +29,7 @@
       display: block;
       width: 100vw;
       height: 100vh;
-      background: transparent;
+      background: radial-gradient(circle at 50% 5%, #194a75 0%, #0a1c35 62%, #081223 100%);
     }
 
     .hud {
@@ -107,8 +107,8 @@
   <div id="message">
     <h1>Matsyavatar - The Great Deluge</h1>
     <p>
-      Drag/touch to guide Matsya (the fish). Manu's Boat follows by rope.
-      Avoid whirlpools and debris with the boat and travel 1500m to survive the deluge.
+      Drag/touch in portrait mode to steer Matsya across lanes. Manu's boat follows by rope.
+      Dodge whirlpools and debris racing downriver and survive for 1500m.
     </p>
     <button id="startBtn">Start Voyage</button>
   </div>
@@ -132,11 +132,27 @@
       obstacles: [],
       rain: [],
       pointer: { x: 0, y: 0, active: false },
-      fish: { x: 0, y: 0, tx: 0, ty: 0, radius: 16 },
-      boat: { x: 0, y: 0, vx: 0, vy: 0, w: 70, h: 28 },
+      fish: { x: 0, y: 0, tx: 0, ty: 0, radius: 18 },
+      boat: { x: 0, y: 0, vx: 0, vy: 0, w: 78, h: 34 },
       damageCooldown: 0,
       spawnTimer: 0,
+      lanes: 3,
     };
+
+    function getPlayfield() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const width = Math.min(420, w - 24);
+      const left = (w - width) / 2;
+      const right = left + width;
+      return {
+        left,
+        right,
+        width,
+        top: 14,
+        bottom: h - 14,
+      };
+    }
 
     function resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -151,12 +167,12 @@
     function resetEntities() {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      state.fish.x = w * 0.28;
-      state.fish.y = h * 0.5;
+      state.fish.x = w * 0.5;
+      state.fish.y = h * 0.78;
       state.fish.tx = state.fish.x;
       state.fish.ty = state.fish.y;
-      state.boat.x = w * 0.12;
-      state.boat.y = h * 0.5;
+      state.boat.x = w * 0.5;
+      state.boat.y = h * 0.88;
       state.boat.vx = 0;
       state.boat.vy = 0;
       state.pointer.x = state.fish.x;
@@ -172,35 +188,37 @@
       const w = window.innerWidth;
       const h = window.innerHeight;
       return {
-        x: randomX ? Math.random() * w : w + Math.random() * 80,
-        y: Math.random() * h,
+        x: randomX ? Math.random() * w : Math.random() * w,
+        y: randomX ? Math.random() * h : -20 - Math.random() * 80,
         len: 8 + Math.random() * 12,
-        speed: 280 + Math.random() * 260,
-        drift: -40 - Math.random() * 80,
+        speed: 360 + Math.random() * 320,
+        drift: -15 + Math.random() * 30,
         alpha: 0.22 + Math.random() * 0.35,
       };
     }
 
     function spawnObstacle() {
-      const h = window.innerHeight;
+      const pf = getPlayfield();
       const type = Math.random() < 0.45 ? 'whirlpool' : 'debris';
-      const y = 70 + Math.random() * (h - 140);
+      const lane = Math.floor(Math.random() * state.lanes);
+      const laneCenter = pf.left + (lane + 0.5) * (pf.width / state.lanes);
+      const y = -90 - Math.random() * 120;
       if (type === 'whirlpool') {
         state.obstacles.push({
           type,
-          x: window.innerWidth + 80,
+          x: laneCenter + (Math.random() - 0.5) * 28,
           y,
-          radius: 25 + Math.random() * 22,
+          radius: 24 + Math.random() * 20,
           spin: Math.random() * Math.PI * 2,
           passed: false,
         });
       } else {
         state.obstacles.push({
           type,
-          x: window.innerWidth + 80,
+          x: laneCenter + (Math.random() - 0.5) * 32,
           y,
-          w: 38 + Math.random() * 60,
-          h: 18 + Math.random() * 24,
+          w: 42 + Math.random() * 52,
+          h: 20 + Math.random() * 22,
           angle: (Math.random() - 0.5) * 0.35,
           passed: false,
         });
@@ -212,6 +230,7 @@
 
       const w = window.innerWidth;
       const h = window.innerHeight;
+      const pf = getPlayfield();
       state.distance += (state.worldSpeed * dt) / 10;
       state.spawnTimer -= dt;
       if (state.spawnTimer <= 0) {
@@ -223,16 +242,15 @@
         const drop = state.rain[i];
         drop.x += drop.drift * dt;
         drop.y += drop.speed * dt;
-        if (drop.y > h + 20 || drop.x < -30) {
+        if (drop.y > h + 20 || drop.x < -30 || drop.x > w + 30) {
           state.rain[i] = makeRainDrop(false);
-          state.rain[i].y = -20;
         }
       }
 
       state.fish.tx = state.pointer.x;
       state.fish.ty = state.pointer.y;
-      state.fish.tx = clamp(state.fish.tx, 30, w - 30);
-      state.fish.ty = clamp(state.fish.ty, 30, h - 30);
+      state.fish.tx = clamp(state.fish.tx, pf.left + 26, pf.right - 26);
+      state.fish.ty = clamp(state.fish.ty, h * 0.52, h - 38);
 
       const fishEase = 1 - Math.exp(-7 * dt);
       state.fish.x += (state.fish.tx - state.fish.x) * fishEase;
@@ -248,15 +266,15 @@
       state.boat.vy *= damping;
       state.boat.x += state.boat.vx * dt * 60;
       state.boat.y += state.boat.vy * dt * 60;
-      state.boat.x = clamp(state.boat.x, 20, w - 20);
-      state.boat.y = clamp(state.boat.y, 25, h - 25);
+      state.boat.x = clamp(state.boat.x, pf.left + 24, pf.right - 24);
+      state.boat.y = clamp(state.boat.y, h * 0.6, h - 24);
 
       state.damageCooldown = Math.max(0, state.damageCooldown - dt);
 
       const boatRadius = Math.max(state.boat.w, state.boat.h) * 0.38;
-      state.obstacles = state.obstacles.filter((obj) => obj.x > -150);
+      state.obstacles = state.obstacles.filter((obj) => obj.y < h + 160);
       for (const obj of state.obstacles) {
-        obj.x -= state.worldSpeed * dt;
+        obj.y += state.worldSpeed * dt;
         if (obj.type === 'whirlpool') {
           obj.spin += dt * 3.5;
           if (circleHit(state.boat.x, state.boat.y, boatRadius, obj.x, obj.y, obj.radius)) {
@@ -295,10 +313,14 @@
       ctx.clearRect(0, 0, w, h);
 
       const grd = ctx.createLinearGradient(0, 0, 0, h);
-      grd.addColorStop(0, '#113055');
-      grd.addColorStop(1, '#071226');
+      grd.addColorStop(0, '#1a4f7f');
+      grd.addColorStop(0.45, '#11365f');
+      grd.addColorStop(1, '#091b33');
       ctx.fillStyle = grd;
       ctx.fillRect(0, 0, w, h);
+
+      const pf = getPlayfield();
+      drawPlayfield(pf, h);
 
       for (const drop of state.rain) {
         ctx.strokeStyle = `rgba(220,240,255,${drop.alpha})`;
@@ -317,7 +339,7 @@
         }
       }
 
-      ctx.strokeStyle = 'rgba(241, 234, 200, 0.9)';
+      ctx.strokeStyle = 'rgba(241, 234, 200, 0.85)';
       ctx.lineWidth = 2.2;
       ctx.beginPath();
       ctx.moveTo(state.boat.x, state.boat.y);
@@ -328,23 +350,54 @@
       drawFish(state.fish.x, state.fish.y, state.fish.radius);
     }
 
+    function drawPlayfield(pf, h) {
+      const laneW = pf.width / state.lanes;
+      ctx.fillStyle = 'rgba(4, 16, 36, 0.32)';
+      ctx.fillRect(pf.left, pf.top, pf.width, pf.bottom - pf.top);
+      for (let i = 1; i < state.lanes; i++) {
+        const x = pf.left + laneW * i;
+        ctx.strokeStyle = 'rgba(176, 215, 255, 0.15)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+
+      for (let i = 0; i < 10; i++) {
+        const segmentY = (i * 130 + (state.distance * 8) % 130) - 140;
+        const alpha = 0.09 + i * 0.015;
+        ctx.fillStyle = `rgba(124, 197, 255, ${alpha})`;
+        ctx.fillRect(pf.left, segmentY, pf.width, 28);
+      }
+    }
+
     function drawFish(x, y, r) {
       ctx.save();
       ctx.translate(x, y);
       const angle = Math.atan2(state.fish.ty - state.fish.y, state.fish.tx - state.fish.x);
       ctx.rotate(angle);
 
-      ctx.fillStyle = '#8cf8ff';
+      const body = ctx.createLinearGradient(-r, -r, r + 8, r);
+      body.addColorStop(0, '#9dfeff');
+      body.addColorStop(0.55, '#5be6f6');
+      body.addColorStop(1, '#1f93c4');
+      ctx.fillStyle = body;
       ctx.beginPath();
       ctx.ellipse(0, 0, r + 9, r, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = '#63dce6';
+      ctx.fillStyle = '#3dc8e2';
       ctx.beginPath();
       ctx.moveTo(-(r + 7), 0);
       ctx.lineTo(-(r + 20), -9);
       ctx.lineTo(-(r + 20), 9);
       ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.42)';
+      ctx.beginPath();
+      ctx.ellipse(r * 0.1, -r * 0.3, r * 0.42, r * 0.2, -0.3, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = '#0b2640';
@@ -357,9 +410,14 @@
     function drawBoat(x, y, w, h) {
       ctx.save();
       ctx.translate(x, y);
-      ctx.rotate(Math.atan2(state.boat.vy, Math.max(10, state.boat.vx)) * 0.15);
+      const tilt = clamp(state.boat.vx / 220, -0.25, 0.25);
+      ctx.rotate(tilt);
 
-      ctx.fillStyle = '#8f5e3f';
+      const hull = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+      hull.addColorStop(0, '#633a26');
+      hull.addColorStop(0.5, '#99603e');
+      hull.addColorStop(1, '#5a311f');
+      ctx.fillStyle = hull;
       ctx.beginPath();
       ctx.roundRect(-w / 2, -h / 2, w, h, 9);
       ctx.fill();
@@ -367,11 +425,21 @@
       ctx.fillStyle = '#b9895d';
       ctx.fillRect(-w / 2 + 4, -h / 2 + 4, w - 8, h * 0.45);
 
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.36, 0);
+      ctx.lineTo(w * 0.3, 0);
+      ctx.stroke();
+
+      ctx.fillStyle = '#5f432a';
+      ctx.fillRect(-2, -h / 2 - 20, 4, 22);
+
       ctx.fillStyle = '#f2e7c8';
       ctx.beginPath();
-      ctx.moveTo(0, -h / 2 + 3);
-      ctx.lineTo(0, -h / 2 - 18);
-      ctx.lineTo(12, -h / 2 + 3);
+      ctx.moveTo(0, -h / 2 - 17);
+      ctx.lineTo(0, -h / 2 + 2);
+      ctx.lineTo(14, -h / 2 - 8);
       ctx.closePath();
       ctx.fill();
 
@@ -383,7 +451,7 @@
       ctx.translate(obj.x, obj.y);
       for (let i = 0; i < 4; i++) {
         const rr = obj.radius - i * 6;
-        ctx.strokeStyle = `rgba(140, 196, 255, ${0.55 - i * 0.1})`;
+        ctx.strokeStyle = `rgba(154, 212, 255, ${0.56 - i * 0.1})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(0, 0, rr, obj.spin + i * 0.5, obj.spin + Math.PI * 1.5 + i * 0.5);
@@ -400,10 +468,21 @@
       ctx.save();
       ctx.translate(obj.x, obj.y);
       ctx.rotate(obj.angle);
-      ctx.fillStyle = '#5c4435';
+      const wood = ctx.createLinearGradient(-obj.w / 2, 0, obj.w / 2, 0);
+      wood.addColorStop(0, '#4a2f21');
+      wood.addColorStop(0.5, '#7a4a33');
+      wood.addColorStop(1, '#452c20');
+      ctx.fillStyle = wood;
       ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
       ctx.strokeStyle = 'rgba(255,255,255,0.15)';
       ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+      ctx.strokeStyle = 'rgba(35,15,8,0.35)';
+      ctx.beginPath();
+      ctx.moveTo(-obj.w / 2 + 4, -obj.h / 2 + 5);
+      ctx.lineTo(obj.w / 2 - 4, -obj.h / 2 + 5);
+      ctx.moveTo(-obj.w / 2 + 4, obj.h / 2 - 5);
+      ctx.lineTo(obj.w / 2 - 4, obj.h / 2 - 5);
+      ctx.stroke();
       ctx.restore();
     }
 
