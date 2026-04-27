@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Matsyavatar - The Great Deluge</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      touch-action: none;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: radial-gradient(circle at 50% 20%, #174067 0%, #0d213c 45%, #070f20 100%);
+    }
+
+    #game {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: transparent;
+    }
+
+    .hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      color: #eaf6ff;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      font-weight: 600;
+      font-size: clamp(14px, 2.5vw, 18px);
+    }
+
+    .hud .panel {
+      background: rgba(5, 16, 33, 0.38);
+      border: 1px solid rgba(220, 240, 255, 0.18);
+      border-radius: 10px;
+      padding: 8px 12px;
+      backdrop-filter: blur(3px);
+    }
+
+    #message {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      text-align: center;
+      width: min(90vw, 540px);
+      padding: 20px;
+      border-radius: 14px;
+      background: rgba(2, 10, 22, 0.74);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(5px);
+    }
+
+    #message h1 {
+      font-size: clamp(24px, 5vw, 40px);
+      margin-bottom: 8px;
+    }
+
+    #message p {
+      line-height: 1.5;
+      opacity: 0.95;
+    }
+
+    #message button {
+      margin-top: 14px;
+      pointer-events: all;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 16px;
+      font-weight: 700;
+      color: #042136;
+      background: #9ce8ff;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div class="hud">
+    <div class="panel" id="stats">Health: 100 | Distance: 0m</div>
+    <div class="panel">Guide Matsya. Protect Manu's Boat.</div>
+  </div>
+
+  <div id="message">
+    <h1>Matsyavatar - The Great Deluge</h1>
+    <p>
+      Drag/touch to guide Matsya (the fish). Manu's Boat follows by rope.
+      Avoid whirlpools and debris with the boat and travel 1500m to survive the deluge.
+    </p>
+    <button id="startBtn">Start Voyage</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const statsEl = document.getElementById('stats');
+    const messageEl = document.getElementById('message');
+    const startBtn = document.getElementById('startBtn');
+
+    const state = {
+      running: false,
+      won: false,
+      lost: false,
+      health: 100,
+      distance: 0,
+      winDistance: 1500,
+      worldSpeed: 180,
+      lastTime: 0,
+      obstacles: [],
+      rain: [],
+      pointer: { x: 0, y: 0, active: false },
+      fish: { x: 0, y: 0, tx: 0, ty: 0, radius: 16 },
+      boat: { x: 0, y: 0, vx: 0, vy: 0, w: 70, h: 28 },
+      damageCooldown: 0,
+      spawnTimer: 0,
+    };
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (!state.running && !state.lost && !state.won) resetEntities();
+    }
+
+    function resetEntities() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      state.fish.x = w * 0.28;
+      state.fish.y = h * 0.5;
+      state.fish.tx = state.fish.x;
+      state.fish.ty = state.fish.y;
+      state.boat.x = w * 0.12;
+      state.boat.y = h * 0.5;
+      state.boat.vx = 0;
+      state.boat.vy = 0;
+      state.pointer.x = state.fish.x;
+      state.pointer.y = state.fish.y;
+      state.obstacles.length = 0;
+      state.rain.length = 0;
+      for (let i = 0; i < 150; i++) {
+        state.rain.push(makeRainDrop(true));
+      }
+    }
+
+    function makeRainDrop(randomX = false) {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      return {
+        x: randomX ? Math.random() * w : w + Math.random() * 80,
+        y: Math.random() * h,
+        len: 8 + Math.random() * 12,
+        speed: 280 + Math.random() * 260,
+        drift: -40 - Math.random() * 80,
+        alpha: 0.22 + Math.random() * 0.35,
+      };
+    }
+
+    function spawnObstacle() {
+      const h = window.innerHeight;
+      const type = Math.random() < 0.45 ? 'whirlpool' : 'debris';
+      const y = 70 + Math.random() * (h - 140);
+      if (type === 'whirlpool') {
+        state.obstacles.push({
+          type,
+          x: window.innerWidth + 80,
+          y,
+          radius: 25 + Math.random() * 22,
+          spin: Math.random() * Math.PI * 2,
+          passed: false,
+        });
+      } else {
+        state.obstacles.push({
+          type,
+          x: window.innerWidth + 80,
+          y,
+          w: 38 + Math.random() * 60,
+          h: 18 + Math.random() * 24,
+          angle: (Math.random() - 0.5) * 0.35,
+          passed: false,
+        });
+      }
+    }
+
+    function update(dt) {
+      if (!state.running) return;
+
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      state.distance += (state.worldSpeed * dt) / 10;
+      state.spawnTimer -= dt;
+      if (state.spawnTimer <= 0) {
+        state.spawnTimer = 0.55 + Math.random() * 0.45;
+        spawnObstacle();
+      }
+
+      for (let i = 0; i < state.rain.length; i++) {
+        const drop = state.rain[i];
+        drop.x += drop.drift * dt;
+        drop.y += drop.speed * dt;
+        if (drop.y > h + 20 || drop.x < -30) {
+          state.rain[i] = makeRainDrop(false);
+          state.rain[i].y = -20;
+        }
+      }
+
+      state.fish.tx = state.pointer.x;
+      state.fish.ty = state.pointer.y;
+      state.fish.tx = clamp(state.fish.tx, 30, w - 30);
+      state.fish.ty = clamp(state.fish.ty, 30, h - 30);
+
+      const fishEase = 1 - Math.exp(-7 * dt);
+      state.fish.x += (state.fish.tx - state.fish.x) * fishEase;
+      state.fish.y += (state.fish.ty - state.fish.y) * fishEase;
+
+      const dx = state.fish.x - state.boat.x;
+      const dy = state.fish.y - state.boat.y;
+      const spring = 4.8;
+      const damping = 0.86;
+      state.boat.vx += dx * spring * dt;
+      state.boat.vy += dy * spring * dt;
+      state.boat.vx *= damping;
+      state.boat.vy *= damping;
+      state.boat.x += state.boat.vx * dt * 60;
+      state.boat.y += state.boat.vy * dt * 60;
+      state.boat.x = clamp(state.boat.x, 20, w - 20);
+      state.boat.y = clamp(state.boat.y, 25, h - 25);
+
+      state.damageCooldown = Math.max(0, state.damageCooldown - dt);
+
+      const boatRadius = Math.max(state.boat.w, state.boat.h) * 0.38;
+      state.obstacles = state.obstacles.filter((obj) => obj.x > -150);
+      for (const obj of state.obstacles) {
+        obj.x -= state.worldSpeed * dt;
+        if (obj.type === 'whirlpool') {
+          obj.spin += dt * 3.5;
+          if (circleHit(state.boat.x, state.boat.y, boatRadius, obj.x, obj.y, obj.radius)) {
+            applyDamage(13);
+          }
+        } else {
+          if (circleRectHit(state.boat.x, state.boat.y, boatRadius, obj)) {
+            applyDamage(9);
+          }
+        }
+      }
+
+      if (state.health <= 0) {
+        state.running = false;
+        state.lost = true;
+        showEnd(false);
+      }
+      if (state.distance >= state.winDistance) {
+        state.running = false;
+        state.won = true;
+        showEnd(true);
+      }
+
+      statsEl.textContent = `Health: ${Math.max(0, Math.round(state.health))} | Distance: ${Math.floor(state.distance)}m`;
+    }
+
+    function applyDamage(amount) {
+      if (state.damageCooldown > 0) return;
+      state.health -= amount;
+      state.damageCooldown = 0.35;
+    }
+
+    function draw() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      ctx.clearRect(0, 0, w, h);
+
+      const grd = ctx.createLinearGradient(0, 0, 0, h);
+      grd.addColorStop(0, '#113055');
+      grd.addColorStop(1, '#071226');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, w, h);
+
+      for (const drop of state.rain) {
+        ctx.strokeStyle = `rgba(220,240,255,${drop.alpha})`;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(drop.x, drop.y);
+        ctx.lineTo(drop.x + 3, drop.y + drop.len);
+        ctx.stroke();
+      }
+
+      for (const obj of state.obstacles) {
+        if (obj.type === 'whirlpool') {
+          drawWhirlpool(obj);
+        } else {
+          drawDebris(obj);
+        }
+      }
+
+      ctx.strokeStyle = 'rgba(241, 234, 200, 0.9)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(state.boat.x, state.boat.y);
+      ctx.lineTo(state.fish.x, state.fish.y);
+      ctx.stroke();
+
+      drawBoat(state.boat.x, state.boat.y, state.boat.w, state.boat.h);
+      drawFish(state.fish.x, state.fish.y, state.fish.radius);
+    }
+
+    function drawFish(x, y, r) {
+      ctx.save();
+      ctx.translate(x, y);
+      const angle = Math.atan2(state.fish.ty - state.fish.y, state.fish.tx - state.fish.x);
+      ctx.rotate(angle);
+
+      ctx.fillStyle = '#8cf8ff';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r + 9, r, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#63dce6';
+      ctx.beginPath();
+      ctx.moveTo(-(r + 7), 0);
+      ctx.lineTo(-(r + 20), -9);
+      ctx.lineTo(-(r + 20), 9);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#0b2640';
+      ctx.beginPath();
+      ctx.arc(r * 0.4, -r * 0.25, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBoat(x, y, w, h) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.atan2(state.boat.vy, Math.max(10, state.boat.vx)) * 0.15);
+
+      ctx.fillStyle = '#8f5e3f';
+      ctx.beginPath();
+      ctx.roundRect(-w / 2, -h / 2, w, h, 9);
+      ctx.fill();
+
+      ctx.fillStyle = '#b9895d';
+      ctx.fillRect(-w / 2 + 4, -h / 2 + 4, w - 8, h * 0.45);
+
+      ctx.fillStyle = '#f2e7c8';
+      ctx.beginPath();
+      ctx.moveTo(0, -h / 2 + 3);
+      ctx.lineTo(0, -h / 2 - 18);
+      ctx.lineTo(12, -h / 2 + 3);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function drawWhirlpool(obj) {
+      ctx.save();
+      ctx.translate(obj.x, obj.y);
+      for (let i = 0; i < 4; i++) {
+        const rr = obj.radius - i * 6;
+        ctx.strokeStyle = `rgba(140, 196, 255, ${0.55 - i * 0.1})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, rr, obj.spin + i * 0.5, obj.spin + Math.PI * 1.5 + i * 0.5);
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(24, 42, 80, 0.45)';
+      ctx.beginPath();
+      ctx.arc(0, 0, obj.radius * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawDebris(obj) {
+      ctx.save();
+      ctx.translate(obj.x, obj.y);
+      ctx.rotate(obj.angle);
+      ctx.fillStyle = '#5c4435';
+      ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+      ctx.restore();
+    }
+
+    function loop(t) {
+      const now = t / 1000;
+      const dt = Math.min(0.033, now - (state.lastTime || now));
+      state.lastTime = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function circleHit(ax, ay, ar, bx, by, br) {
+      const dx = ax - bx;
+      const dy = ay - by;
+      return dx * dx + dy * dy < (ar + br) * (ar + br);
+    }
+
+    function circleRectHit(cx, cy, cr, rect) {
+      const rx = rect.x - rect.w / 2;
+      const ry = rect.y - rect.h / 2;
+      const nearestX = clamp(cx, rx, rx + rect.w);
+      const nearestY = clamp(cy, ry, ry + rect.h);
+      const dx = cx - nearestX;
+      const dy = cy - nearestY;
+      return dx * dx + dy * dy < cr * cr;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function screenToCanvas(clientX, clientY) {
+      state.pointer.x = clientX;
+      state.pointer.y = clientY;
+      if (!state.running && !state.won && !state.lost) {
+        state.fish.tx = clientX;
+        state.fish.ty = clientY;
+      }
+    }
+
+    function startGame() {
+      state.running = true;
+      state.won = false;
+      state.lost = false;
+      state.health = 100;
+      state.distance = 0;
+      state.spawnTimer = 0.3;
+      state.damageCooldown = 0;
+      messageEl.classList.add('hidden');
+      resetEntities();
+      statsEl.textContent = `Health: ${state.health} | Distance: 0m`;
+    }
+
+    function showEnd(win) {
+      messageEl.classList.remove('hidden');
+      messageEl.innerHTML = win
+        ? `<h1>The Ark Endures</h1><p>You guided Manu safely through the storm and reached ${Math.floor(state.distance)}m.</p><button id="restartBtn">Sail Again</button>`
+        : `<h1>The Rope Snaps</h1><p>Manu's boat was battered by the deluge at ${Math.floor(state.distance)}m. Try again.</p><button id="restartBtn">Retry</button>`;
+      document.getElementById('restartBtn').addEventListener('click', startGame);
+    }
+
+    window.addEventListener('resize', resize);
+    window.addEventListener('pointermove', (e) => {
+      screenToCanvas(e.clientX, e.clientY);
+    });
+    window.addEventListener('pointerdown', (e) => {
+      state.pointer.active = true;
+      screenToCanvas(e.clientX, e.clientY);
+    });
+    window.addEventListener('pointerup', () => {
+      state.pointer.active = false;
+    });
+
+    startBtn.addEventListener('click', startGame);
+
+    resize();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
