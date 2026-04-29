@@ -68,6 +68,16 @@ const PERFORMANCE_TARGETS = {
   low: { name: 'low', fps: 30 }
 };
 
+
+
+const ASSET_THEME = {
+  water: {
+    type: 'texture',
+    src: 'assets/water-flow.png',
+    scrollSpeedU: 0.05,
+    scrollSpeedV: 0.01
+  }
+};
 class QualityManager {
   constructor() {
     const mobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -95,6 +105,24 @@ class QualityManager {
   }
 }
 
+
+
+function loadTextureAsset(url) {
+  const loader = new THREE.TextureLoader();
+  return new Promise((resolve, reject) => {
+    loader.load(
+      url,
+      (texture) => {
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        resolve(texture);
+      },
+      undefined,
+      (err) => reject(err || new Error(`Failed to load texture: ${url}`))
+    );
+  });
+}
 class Scene3D {
   constructor(canvas, state, getPlayfield) {
     this.canvas = canvas; this.state = state; this.getPlayfield = getPlayfield;
@@ -119,12 +147,14 @@ class Scene3D {
     this.scene.add(sun);
 
     this.assets = this.createAssetPack();
+    this.waterAsset = ASSET_THEME.water;
+    this.waterTexture = null;
     const waterGeo = new THREE.PlaneGeometry(340, 1200, 64, 64);
-    const waterMat = new THREE.MeshStandardMaterial({ color: 0x114a72, roughness: 0.45, metalness: 0.08 });
-    this.water = new THREE.Mesh(waterGeo, waterMat);
+    this.water = new THREE.Mesh(waterGeo, this.createFallbackWaterMaterial());
     this.water.rotation.x = -Math.PI / 2;
     this.water.position.y = -8;
     this.scene.add(this.water);
+    this.initWaterAsset();
 
     this.ropeCurve = new THREE.CatmullRomCurve3([new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]);
     this.ropePoints = this.ropeCurve.getPoints(18);
@@ -217,6 +247,41 @@ class Scene3D {
     group.add(prowAccent);
     return { group };
   }
+
+  createFallbackWaterMaterial() {
+    return new THREE.MeshStandardMaterial({ color: 0x114a72, roughness: 0.45, metalness: 0.08 });
+  }
+  initWaterAsset() {
+    if (!this.waterAsset) return;
+    if (this.waterAsset.type === 'texture' && this.waterAsset.src) {
+      loadTextureAsset(this.waterAsset.src)
+        .then((texture) => {
+          this.waterTexture = texture;
+          this.water.material = new THREE.MeshStandardMaterial({
+            map: texture,
+            color: 0x7fb8d8,
+            roughness: 0.55,
+            metalness: 0.04
+          });
+        })
+        .catch((err) => {
+          console.warn('Water texture failed to load; using fallback material.', err);
+          this.waterTexture = null;
+          this.water.material = this.createFallbackWaterMaterial();
+        });
+      return;
+    }
+    if (this.waterAsset.type === 'gif') {
+      // Browsers do not reliably expose animated GIF frames as a live WebGL texture.
+      // Prefer a sprite sheet animation or HTMLVideoElement + THREE.VideoTexture fallback.
+      console.warn('GIF water assets are not recommended as textures; using fallback material.');
+      this.waterTexture = null;
+      this.water.material = this.createFallbackWaterMaterial();
+      return;
+    }
+    this.waterTexture = null;
+    this.water.material = this.createFallbackWaterMaterial();
+  }
   resize() { this.renderer.setSize(innerWidth, innerHeight, false); this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); }
   toWorld(x, y) {
     const nx = (x / innerWidth) * 2 - 1, ny = -(y / innerHeight) * 2 + 1;
@@ -225,6 +290,10 @@ class Scene3D {
   render(dt) {
     const s = this.state;
     this.water.position.z = (this.water.position.z + s.worldSpeed * dt * 0.12) % 50 - 25;
+    if (this.waterTexture) {
+      this.waterTexture.offset.x += (this.waterAsset.scrollSpeedU || 0) * dt;
+      this.waterTexture.offset.y += (this.waterAsset.scrollSpeedV || 0) * dt;
+    }
 
     const fishW = this.toWorld(s.fish.x, s.fish.y);
     const boatW = this.toWorld(s.boat.x, s.boat.y);
