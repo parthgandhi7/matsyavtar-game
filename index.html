@@ -60,10 +60,46 @@ class Whirlpool {
   update(dt, speed) { this.z += speed * dt; this.spin += this.spinSpeed * dt; }
 }
 
+
+
+const PERFORMANCE_TARGETS = {
+  high: { name: 'high', fps: 60 },
+  medium: { name: 'medium', fps: 45 },
+  low: { name: 'low', fps: 30 }
+};
+
+class QualityManager {
+  constructor() {
+    const mobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    this.profile = mobile ? 'medium' : 'high';
+    this.fpsSamples = [];
+  }
+  get config() {
+    const tiers = {
+      high: { shadowSize: 2048, postFX: true, particleDensity: 1, antialias: true, bakedLightingBias: 0.75 },
+      medium: { shadowSize: 1024, postFX: true, particleDensity: 0.6, antialias: true, bakedLightingBias: 0.9 },
+      low: { shadowSize: 512, postFX: false, particleDensity: 0.25, antialias: false, bakedLightingBias: 1.15 }
+    };
+    return tiers[this.profile];
+  }
+  sample(dt) {
+    const fps = 1 / Math.max(dt, 0.0001);
+    this.fpsSamples.push(fps);
+    if (this.fpsSamples.length > 120) this.fpsSamples.shift();
+    if (this.fpsSamples.length < 90) return;
+    const avg = this.fpsSamples.reduce((a,b)=>a+b,0) / this.fpsSamples.length;
+    if (this.profile === 'high' && avg < PERFORMANCE_TARGETS.medium.fps) this.profile = 'medium';
+    else if (this.profile === 'medium' && avg < PERFORMANCE_TARGETS.low.fps) this.profile = 'low';
+    else if (this.profile === 'medium' && avg > PERFORMANCE_TARGETS.high.fps - 2) this.profile = 'high';
+    else if (this.profile === 'low' && avg > PERFORMANCE_TARGETS.medium.fps + 3) this.profile = 'medium';
+  }
+}
+
 class Scene3D {
   constructor(canvas, state, getPlayfield) {
     this.canvas = canvas; this.state = state; this.getPlayfield = getPlayfield;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    this.quality = new QualityManager();
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.config.antialias, alpha: false });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -73,9 +109,13 @@ class Scene3D {
     this.camera.position.set(0, 26, 54);
     this.camera.lookAt(0, 8, -80);
 
-    this.scene.add(new THREE.AmbientLight(0x8fbce0, 0.8));
-    const sun = new THREE.DirectionalLight(0xd6ecff, 1.2);
+    this.scene.add(new THREE.HemisphereLight(0xa4d7ff, 0x12304a, this.quality.config.bakedLightingBias));
+    this.scene.add(new THREE.AmbientLight(0x8fbce0, 0.55));
+    const sun = new THREE.DirectionalLight(0xd6ecff, 1.1);
     sun.position.set(35, 80, 30);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(this.quality.config.shadowSize, this.quality.config.shadowSize);
+    this.sun = sun;
     this.scene.add(sun);
 
     this.assets = this.createAssetPack();
@@ -96,13 +136,27 @@ class Scene3D {
     this.scene.add(this.fish.group);
     this.scene.add(this.boat.group);
 
-    this.whirlpoolMeshes = [];
+    this.maxWhirlpools = 28;
+    this.whirlpoolPool = Array.from({ length: this.maxWhirlpools }, () => {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.12, 10, 28), new THREE.MeshStandardMaterial({ color: 0x9ad4ff, emissive: 0x12314a }));
+      ring.rotation.x = Math.PI / 2;
+      ring.visible = false;
+      this.scene.add(ring);
+      return ring;
+    });
+
     this.maxDebris = 120;
     const debrisGeo = new THREE.BoxGeometry(1, 0.45, 0.5);
     const debrisMat = new THREE.MeshStandardMaterial({ color: 0x6a412d, roughness: 0.9 });
     this.debrisInst = new THREE.InstancedMesh(debrisGeo, debrisMat, this.maxDebris);
     this.debrisInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.scene.add(this.debrisInst);
+
+    this.maxProps = 80;
+    const propGeo = new THREE.CylinderGeometry(0.25, 0.25, 4, 6);
+    const propMat = new THREE.MeshStandardMaterial({ color: 0x2c4f2f, roughness: 0.9 });
+    this.propsInst = new THREE.InstancedMesh(propGeo, propMat, this.maxProps);
+    this.scene.add(this.propsInst);
   }
   createAssetPack() {
     const lodScale = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 0.5 : 1;
@@ -196,20 +250,25 @@ class Scene3D {
     this.ropeCurve.points[3].copy(fishAnchor);
     this.rope.geometry.setFromPoints(this.ropeCurve.getPoints(18));
 
-    this.whirlpoolMeshes.forEach((m) => this.scene.remove(m));
-    this.whirlpoolMeshes = [];
+    this.quality.sample(dt);
+    const cfg = this.quality.config;
+    this.sun.shadow.mapSize.set(cfg.shadowSize, cfg.shadowSize);
+
+    for (const ring of this.whirlpoolPool) ring.visible = false;
+    let whirlIndex = 0;
     let debrisIndex = 0;
+    let propIndex = 0;
     const dummy = new THREE.Object3D();
     for (const o of s.obstacles) {
+      if (o.z > this.camera.position.z + 20 || o.z < -420) continue; // frustum-ish culling in lane runner space
       const p = this.toWorld(o.x, s.boat.y);
       p.z = o.z;
-      if (o.type === 'whirlpool') {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(o.radius / 18, 0.12, 10, 28), new THREE.MeshStandardMaterial({ color: 0x9ad4ff, emissive: 0x12314a }));
-        ring.rotation.x = Math.PI / 2;
+      if (o.type === 'whirlpool' && whirlIndex < this.maxWhirlpools) {
+        const ring = this.whirlpoolPool[whirlIndex++];
+        ring.visible = true;
+        ring.scale.setScalar(o.radius / 18);
         ring.rotation.z = o.spin;
         ring.position.copy(p);
-        this.whirlpoolMeshes.push(ring);
-        this.scene.add(ring);
       } else if (debrisIndex < this.maxDebris) {
         dummy.position.copy(p);
         dummy.rotation.set(0, 0, o.angle);
@@ -217,10 +276,20 @@ class Scene3D {
         dummy.updateMatrix();
         this.debrisInst.setMatrixAt(debrisIndex++, dummy.matrix);
       }
+      if (propIndex < this.maxProps && (Math.abs(o.x - innerWidth * 0.5) > 90)) {
+        dummy.position.set(p.x * 0.12, -6, p.z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1 + cfg.particleDensity, 1);
+        dummy.updateMatrix();
+        this.propsInst.setMatrixAt(propIndex++, dummy.matrix);
+      }
     }
     this.debrisInst.count = debrisIndex;
     this.debrisInst.instanceMatrix.needsUpdate = true;
+    this.propsInst.count = propIndex;
+    this.propsInst.instanceMatrix.needsUpdate = true;
 
+    this.renderer.toneMappingExposure = cfg.postFX ? 1 : 0.9;
     this.renderer.render(this.scene, this.camera);
   }
 }
@@ -261,7 +330,7 @@ class Game {
       if(boatHit||fishHit) this.takeDamage();
     }
   }
-  if(s.shake>0){s.shake-=dt;s.shakePower*=0.9;} if(s.health<=0){s.running=false;s.lost=true;this.showEnd(false);} this.statsEl.textContent=`Score: ${Math.floor(s.score)}m`; this.heartsEl.textContent='❤ '.repeat(Math.max(0,s.health)).trim()||'—'; }
+  if(s.shake>0){s.shake-=dt;s.shakePower*=0.9;} if(s.health<=0){s.running=false;s.lost=true;this.showEnd(false);} this.statsEl.textContent=`Score: ${Math.floor(s.score)}m | Target: ${PERFORMANCE_TARGETS[this.scene3d.quality.profile].fps} FPS (${this.scene3d.quality.profile})`;  this.heartsEl.textContent='❤ '.repeat(Math.max(0,s.health)).trim()||'—'; }
   sphereHit(a,b){const dx=a.x-b.x,dy=a.y-b.y,dz=a.z-b.z;return dx*dx+dy*dy+dz*dz<(a.r+b.r)*(a.r+b.r);}
   sphereBoxHit(s,b){const nx=this.clamp(s.x,b.x-b.w/2,b.x+b.w/2),ny=this.clamp(s.y,b.y-b.h/2,b.y+b.h/2),nz=this.clamp(s.z,b.z-b.d/2,b.z+b.d/2),dx=s.x-nx,dy=s.y-ny,dz=s.z-nz;return dx*dx+dy*dy+dz*dz<s.r*s.r;}
   clamp(v,min,max){return Math.max(min,Math.min(max,v));}
