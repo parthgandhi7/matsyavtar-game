@@ -53,11 +53,11 @@
 import * as THREE from 'https://unpkg.com/three@0.165.0/build/three.module.js';
 
 class Whirlpool {
-  constructor(x, y, radius) {
-    this.type = 'whirlpool'; this.x = x; this.y = y; this.radius = radius;
+  constructor(x, z, radius) {
+    this.type = 'whirlpool'; this.x = x; this.z = z; this.radius = radius;
     this.spin = Math.random() * Math.PI * 2; this.spinSpeed = 2.8;
   }
-  update(dt, speed) { this.y += speed * dt; this.spin += this.spinSpeed * dt; }
+  update(dt, speed) { this.z += speed * dt; this.spin += this.spinSpeed * dt; }
 }
 
 class Scene3D {
@@ -70,8 +70,8 @@ class Scene3D {
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(0x0a2240, 80, 330);
     this.camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 600);
-    this.camera.position.set(0, 52, 88);
-    this.camera.lookAt(0, 0, -20);
+    this.camera.position.set(0, 26, 54);
+    this.camera.lookAt(0, 8, -80);
 
     this.scene.add(new THREE.AmbientLight(0x8fbce0, 0.8));
     const sun = new THREE.DirectionalLight(0xd6ecff, 1.2);
@@ -185,6 +185,8 @@ class Scene3D {
     this.boat.group.position.copy(boatW);
     this.boat.group.rotation.z = s.boat.roll;
     this.boat.group.rotation.x = s.boat.pitch;
+    this.camera.position.lerp(boatW.clone().add(new THREE.Vector3(0, 20, 46)), 1 - Math.exp(-4.5 * dt));
+    this.camera.lookAt(boatW.x, boatW.y + 3, boatW.z - 120);
 
     const mid = fishAnchor.clone().lerp(boatAnchor, 0.5);
     mid.y -= 1.6 + Math.abs(s.boat.vy) * 0.004;
@@ -199,7 +201,8 @@ class Scene3D {
     let debrisIndex = 0;
     const dummy = new THREE.Object3D();
     for (const o of s.obstacles) {
-      const p = this.toWorld(o.x, o.y);
+      const p = this.toWorld(o.x, s.boat.y);
+      p.z = o.z;
       if (o.type === 'whirlpool') {
         const ring = new THREE.Mesh(new THREE.TorusGeometry(o.radius / 18, 0.12, 10, 28), new THREE.MeshStandardMaterial({ color: 0x9ad4ff, emissive: 0x12314a }));
         ring.rotation.x = Math.PI / 2;
@@ -210,7 +213,7 @@ class Scene3D {
       } else if (debrisIndex < this.maxDebris) {
         dummy.position.copy(p);
         dummy.rotation.set(0, 0, o.angle);
-        dummy.scale.set(o.w / 14, 1, o.h / 14);
+        dummy.scale.set(o.w / 14, 1, (o.d || o.h) / 14);
         dummy.updateMatrix();
         this.debrisInst.setMatrixAt(debrisIndex++, dummy.matrix);
       }
@@ -233,20 +236,34 @@ class Game {
     this.scene3d = new Scene3D(this.canvas, this.state, () => this.getPlayfield());
     this.bind(); this.resize(); requestAnimationFrame((t) => this.loop(t));
   }
-  createState() { return { running:false, won:false, lost:false, health:3, score:0, worldSpeed:190, lastTime:0, obstacles:[], rain:[], spawnTimer:0, fish:{x:0,y:0,tx:0,ty:0,radius:18,alpha:1,flashTimer:0,heading:0}, boat:{x:0,y:0,vx:0,vy:0,w:82,h:36,pitch:0,roll:0}, pointer:{x:0,y:0,active:false}, damageCooldown:0, shake:0, shakePower:0, lanes:3 }; }
+  createState() { return { running:false, won:false, lost:false, health:3, score:0, worldSpeed:190, lastTime:0, obstacles:[], rain:[], spawnTimer:0, fish:{x:0,y:0,tx:0,ty:0,radius:18,alpha:1,flashTimer:0,heading:0}, boat:{x:0,y:0,vx:0,vy:0,w:82,h:36,pitch:0,roll:0}, pointer:{x:0,y:0,active:false}, damageCooldown:0, shake:0, shakePower:0, lanes:3, spawnZ:-320, despawnZ:90 }; }
   getPlayfield(){ const w=innerWidth,h=innerHeight,width=Math.min(420,w-24),left=(w-width)/2; return {left,right:left+width,width,top:14,bottom:h-14}; }
   bind(){ addEventListener('resize',()=>this.resize()); addEventListener('pointermove',(e)=>this.trackPointer(e)); addEventListener('pointerdown',(e)=>{this.state.pointer.active=true;this.trackPointer(e);}); addEventListener('pointerup',()=>this.state.pointer.active=false); this.startBtn.addEventListener('click',()=>this.startGame()); }
   trackPointer(e){ this.state.pointer.x=e.clientX; this.state.pointer.y=e.clientY-100; }
   resize(){ this.scene3d.resize(); if(!this.state.running) this.resetEntities(); }
   resetEntities(){ const s=this.state,w=innerWidth,h=innerHeight; s.fish.x=w*0.5;s.fish.y=h*0.74;s.fish.tx=s.fish.x;s.fish.ty=s.fish.y;s.fish.heading=0; s.boat.x=w*0.5;s.boat.y=h*0.88;s.boat.vx=0;s.boat.vy=0;s.boat.pitch=0;s.boat.roll=0; s.pointer.x=s.fish.x;s.pointer.y=s.fish.y;s.obstacles=[]; }
-  spawnObstacle(){ const pf=this.getPlayfield(),lane=Math.floor(Math.random()*this.state.lanes),center=pf.left+(lane+0.5)*(pf.width/this.state.lanes),y=-90-Math.random()*120; if(Math.random()<0.55) this.state.obstacles.push(new Whirlpool(center+(Math.random()-0.5)*24,y,24+Math.random()*16)); else this.state.obstacles.push({type:'debris',x:center+(Math.random()-0.5)*32,y,w:42+Math.random()*52,h:20+Math.random()*22,angle:(Math.random()-0.5)*0.35}); }
+  spawnObstacle(){ const pf=this.getPlayfield(),lane=Math.floor(Math.random()*this.state.lanes),center=pf.left+(lane+0.5)*(pf.width/this.state.lanes),z=this.state.spawnZ-Math.random()*140; if(Math.random()<0.55) this.state.obstacles.push(new Whirlpool(center+(Math.random()-0.5)*24,z,24+Math.random()*16)); else this.state.obstacles.push({type:'debris',x:center+(Math.random()-0.5)*32,z,w:42+Math.random()*52,h:20+Math.random()*22,d:18+Math.random()*16,angle:(Math.random()-0.5)*0.35}); }
   takeDamage(){ const s=this.state;if(s.damageCooldown>0) return; s.health-=1;s.damageCooldown=0.55;s.fish.flashTimer=2;s.shake=0.22;s.shakePower=12; }
   update(dt){ const s=this.state;if(!s.running) return; const h=innerHeight,pf=this.getPlayfield(); s.score+=(s.worldSpeed*dt)/10; s.spawnTimer-=dt; if(s.spawnTimer<=0){s.spawnTimer=0.55+Math.random()*0.45; this.spawnObstacle();} s.damageCooldown=Math.max(0,s.damageCooldown-dt); s.fish.flashTimer=Math.max(0,s.fish.flashTimer-dt); s.fish.alpha=s.fish.flashTimer>0?(Math.sin((2-s.fish.flashTimer)*30)>0?1:0.5):1;
   s.fish.tx=this.clamp(s.pointer.x,pf.left+26,pf.right-26); s.fish.ty=this.clamp(s.pointer.y,h*0.42,h-38); const ease=1-Math.exp(-8*dt); s.fish.x+=(s.fish.tx-s.fish.x)*ease; s.fish.y+=(s.fish.ty-s.fish.y)*ease; const fishVx=(s.fish.tx-s.fish.x)*2.6; s.fish.heading=THREE.MathUtils.clamp(fishVx/240,-0.6,0.6);
   const dx=s.fish.x-s.boat.x,dy=s.fish.y-s.boat.y,spring=3.9,damping=0.92; s.boat.vx+=dx*spring*dt; s.boat.vy+=(dy+18)*spring*dt; s.boat.vx*=damping; s.boat.vy*=damping; s.boat.x+=s.boat.vx*dt*60; s.boat.y+=s.boat.vy*dt*60; s.boat.x=this.clamp(s.boat.x,pf.left+24,pf.right-24); s.boat.y=this.clamp(s.boat.y,h*0.58,h-24); s.boat.roll=THREE.MathUtils.clamp(-s.boat.vx/280,-0.35,0.35); s.boat.pitch=THREE.MathUtils.clamp(s.boat.vy/420,-0.2,0.2);
-  const boatR=Math.max(s.boat.w,s.boat.h)*0.38; s.obstacles=s.obstacles.filter(o=>o.y<h+160); for(const o of s.obstacles){ if(o.type==='whirlpool'){o.update(dt,s.worldSpeed); if(this.circleHit(s.boat.x,s.boat.y,boatR,o.x,o.y,o.radius)||this.circleHit(s.fish.x,s.fish.y,s.fish.radius,o.x,o.y,o.radius*0.8)) this.takeDamage();} else {o.y += s.worldSpeed*dt; if(this.circleRectHit(s.boat.x,s.boat.y,boatR,o)||this.circleRectHit(s.fish.x,s.fish.y,s.fish.radius,o)) this.takeDamage();}}
+  const boatSphere={x:s.boat.x,y:s.boat.y,z:0,r:Math.max(s.boat.w,s.boat.h)*0.36};
+  const fishSphere={x:s.fish.x,y:s.fish.y,z:-20,r:s.fish.radius*0.9};
+  s.obstacles=s.obstacles.filter(o=>o.z<s.despawnZ);
+  for(const o of s.obstacles){
+    if(o.type==='whirlpool'){
+      o.update(dt,s.worldSpeed);
+      if(this.sphereHit(boatSphere,{x:o.x,y:s.boat.y,z:o.z,r:o.radius*0.9})||this.sphereHit(fishSphere,{x:o.x,y:s.fish.y,z:o.z,r:o.radius*0.75})) this.takeDamage();
+    } else {
+      o.z += s.worldSpeed*dt;
+      const boatHit=this.sphereBoxHit(boatSphere,{x:o.x,y:s.boat.y,z:o.z,w:o.w,h:o.h,d:o.d});
+      const fishHit=this.sphereBoxHit(fishSphere,{x:o.x,y:s.fish.y,z:o.z,w:o.w*0.9,h:o.h,d:o.d});
+      if(boatHit||fishHit) this.takeDamage();
+    }
+  }
   if(s.shake>0){s.shake-=dt;s.shakePower*=0.9;} if(s.health<=0){s.running=false;s.lost=true;this.showEnd(false);} this.statsEl.textContent=`Score: ${Math.floor(s.score)}m`; this.heartsEl.textContent='❤ '.repeat(Math.max(0,s.health)).trim()||'—'; }
-  circleHit(ax,ay,ar,bx,by,br){const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy<(ar+br)*(ar+br);} circleRectHit(cx,cy,cr,r){const rx=r.x-r.w/2,ry=r.y-r.h/2,nx=this.clamp(cx,rx,rx+r.w),ny=this.clamp(cy,ry,ry+r.h),dx=cx-nx,dy=cy-ny;return dx*dx+dy*dy<cr*cr;}
+  sphereHit(a,b){const dx=a.x-b.x,dy=a.y-b.y,dz=a.z-b.z;return dx*dx+dy*dy+dz*dz<(a.r+b.r)*(a.r+b.r);}
+  sphereBoxHit(s,b){const nx=this.clamp(s.x,b.x-b.w/2,b.x+b.w/2),ny=this.clamp(s.y,b.y-b.h/2,b.y+b.h/2),nz=this.clamp(s.z,b.z-b.d/2,b.z+b.d/2),dx=s.x-nx,dy=s.y-ny,dz=s.z-nz;return dx*dx+dy*dy+dz*dz<s.r*s.r;}
   clamp(v,min,max){return Math.max(min,Math.min(max,v));}
   startGame(){Object.assign(this.state,this.createState(),{running:true}); this.resetEntities(); this.state.spawnTimer=0.3; this.messageEl.classList.add('hidden'); this.statsEl.textContent='Score: 0m'; this.heartsEl.textContent='❤ ❤ ❤';}
   showEnd(win){ this.messageEl.classList.remove('hidden'); this.messageEl.innerHTML=win?`<h1>The Ark Endures</h1><p>You reached ${Math.floor(this.state.score)}m.</p><button id="restartBtn">Sail Again</button>`:`<h1>The Rope Snaps</h1><p>You reached ${Math.floor(this.state.score)}m. Try again.</p><button id="restartBtn">Retry</button>`; document.getElementById('restartBtn').addEventListener('click',()=>this.startGame()); }
