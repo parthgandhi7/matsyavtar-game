@@ -78,6 +78,7 @@ class Scene3D {
     sun.position.set(35, 80, 30);
     this.scene.add(sun);
 
+    this.assets = this.createAssetPack();
     const waterGeo = new THREE.PlaneGeometry(340, 1200, 64, 64);
     const waterMat = new THREE.MeshStandardMaterial({ color: 0x114a72, roughness: 0.45, metalness: 0.08 });
     this.water = new THREE.Mesh(waterGeo, waterMat);
@@ -85,7 +86,9 @@ class Scene3D {
     this.water.position.y = -8;
     this.scene.add(this.water);
 
-    this.rope = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0xf1eac8 }));
+    this.ropeCurve = new THREE.CatmullRomCurve3([new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]);
+    this.ropePoints = this.ropeCurve.getPoints(18);
+    this.rope = new THREE.Line(new THREE.BufferGeometry().setFromPoints(this.ropePoints), this.assets.materials.rope);
     this.scene.add(this.rope);
 
     this.fish = this.createFish();
@@ -100,6 +103,20 @@ class Scene3D {
     this.debrisInst = new THREE.InstancedMesh(debrisGeo, debrisMat, this.maxDebris);
     this.debrisInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.scene.add(this.debrisInst);
+  }
+  createAssetPack() {
+    const lodScale = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 0.5 : 1;
+    return {
+      mobileTextureSize: lodScale < 1 ? 512 : 1024,
+      materials: {
+        fishBody: new THREE.MeshStandardMaterial({ color: 0x7deeff, emissive: 0x18495d, emissiveIntensity: 0.45, roughness: 0.35, metalness: 0.15 }),
+        fishOrnament: new THREE.MeshStandardMaterial({ color: 0xcda748, emissive: 0x5a3b12, emissiveIntensity: 0.6, roughness: 0.2, metalness: 0.8 }),
+        divineGlow: new THREE.MeshStandardMaterial({ color: 0xb9f4ff, emissive: 0x5ed8ff, emissiveIntensity: 1.15, roughness: 0.1, metalness: 0.35, transparent: true, opacity: 0.74 }),
+        carvedWood: new THREE.MeshStandardMaterial({ color: 0x8d5938, roughness: 0.85, metalness: 0.1 }),
+        clothPassenger: new THREE.MeshStandardMaterial({ color: 0xe0cf9a, roughness: 0.92, metalness: 0.03 }),
+        rope: new THREE.LineBasicMaterial({ color: 0xf1eac8 })
+      }
+    };
   }
   createFish() {
     const group = new THREE.Group();
@@ -116,23 +133,34 @@ class Scene3D {
     bodyGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinW, 4));
     const bones = [new THREE.Bone(), new THREE.Bone()];
     bones[0].position.set(0, 0, 0); bones[1].position.set(1.5, 0, 0); bones[0].add(bones[1]);
-    const skinned = new THREE.SkinnedMesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0x7deeff, roughness: 0.35 }));
+    const skinned = new THREE.SkinnedMesh(bodyGeo, this.assets.materials.fishBody);
     skinned.add(bones[0]); skinned.bind(new THREE.Skeleton(bones));
     skinned.rotation.z = Math.PI / 2;
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.65, 1.1, 4), new THREE.MeshStandardMaterial({ color: 0x34b8e2 }));
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.65, 1.1, 4), this.assets.materials.fishBody);
     tail.rotation.z = -Math.PI / 2; tail.position.set(-2.2, 0, 0);
-    group.add(skinned, tail);
+    const ornament = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.12, 8, 18), this.assets.materials.fishOrnament);
+    ornament.rotation.y = Math.PI / 2; ornament.position.set(0.45, 0.2, 0);
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.45, 14, 14), this.assets.materials.divineGlow);
+    halo.position.set(1.15, 0.18, 0);
+    group.add(skinned, tail, ornament, halo);
     return { group, skinned, bones };
   }
   createBoat() {
     const group = new THREE.Group();
-    const hull = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.3, 2.2), new THREE.MeshStandardMaterial({ color: 0x8d5938, roughness: 0.85 }));
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.3, 2.2), this.assets.materials.carvedWood);
     group.add(hull);
-    for (let i = 0; i < 3; i++) {
-      const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.48, 4, 8), new THREE.MeshStandardMaterial({ color: 0xe0cf9a }));
-      p.position.set(-1.2 + i * 1.2, 0.9, (i % 2 ? -0.5 : 0.5));
+    const passengerOffsets = [
+      [-1.35, 0.8, 0.54], [-0.8, 0.84, -0.54], [-0.3, 0.8, 0.54], [0.15, 0.84, -0.54],
+      [0.65, 0.8, 0.54], [1.1, 0.84, -0.54], [0, 1.02, 0]
+    ];
+    for (const [x, y, z] of passengerOffsets) {
+      const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.19, 0.42, 3, 6), this.assets.materials.clothPassenger);
+      p.position.set(x, y, z);
       group.add(p);
     }
+    const prowAccent = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.08, 6, 16), this.assets.materials.fishOrnament);
+    prowAccent.position.set(2.05, 0.4, 0); prowAccent.rotation.y = Math.PI / 2;
+    group.add(prowAccent);
     return { group };
   }
   resize() { this.renderer.setSize(innerWidth, innerHeight, false); this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); }
@@ -146,16 +174,25 @@ class Scene3D {
 
     const fishW = this.toWorld(s.fish.x, s.fish.y);
     const boatW = this.toWorld(s.boat.x, s.boat.y);
+    const fishAnchor = fishW.clone().add(new THREE.Vector3(-1.45, 1.7, 0));
+    const boatAnchor = boatW.clone().add(new THREE.Vector3(2.2, 1, 0));
     this.fish.group.position.copy(fishW);
     this.fish.group.position.y += 2.5;
-    this.fish.group.rotation.y = Math.atan2((s.fish.tx - s.fish.x), 40);
+    this.fish.group.rotation.y = s.fish.heading;
     this.fish.bones[1].rotation.y = Math.sin(performance.now() * 0.01) * 0.45;
     this.fish.group.traverse((m) => { if (m.material) m.material.opacity = s.fish.alpha; if (m.material) m.material.transparent = s.fish.alpha < 1; });
 
     this.boat.group.position.copy(boatW);
-    this.boat.group.rotation.z = THREE.MathUtils.clamp(-s.boat.vx / 280, -0.35, 0.35);
+    this.boat.group.rotation.z = s.boat.roll;
+    this.boat.group.rotation.x = s.boat.pitch;
 
-    this.rope.geometry.setFromPoints([boatW, fishW]);
+    const mid = fishAnchor.clone().lerp(boatAnchor, 0.5);
+    mid.y -= 1.6 + Math.abs(s.boat.vy) * 0.004;
+    this.ropeCurve.points[0].copy(boatAnchor);
+    this.ropeCurve.points[1].copy(boatAnchor.clone().lerp(mid, 0.35));
+    this.ropeCurve.points[2].copy(fishAnchor.clone().lerp(mid, 0.35));
+    this.ropeCurve.points[3].copy(fishAnchor);
+    this.rope.geometry.setFromPoints(this.ropeCurve.getPoints(18));
 
     this.whirlpoolMeshes.forEach((m) => this.scene.remove(m));
     this.whirlpoolMeshes = [];
@@ -196,17 +233,17 @@ class Game {
     this.scene3d = new Scene3D(this.canvas, this.state, () => this.getPlayfield());
     this.bind(); this.resize(); requestAnimationFrame((t) => this.loop(t));
   }
-  createState() { return { running:false, won:false, lost:false, health:3, score:0, worldSpeed:190, lastTime:0, obstacles:[], rain:[], spawnTimer:0, fish:{x:0,y:0,tx:0,ty:0,radius:18,alpha:1,flashTimer:0}, boat:{x:0,y:0,vx:0,vy:0,w:82,h:36}, pointer:{x:0,y:0,active:false}, damageCooldown:0, shake:0, shakePower:0, lanes:3 }; }
+  createState() { return { running:false, won:false, lost:false, health:3, score:0, worldSpeed:190, lastTime:0, obstacles:[], rain:[], spawnTimer:0, fish:{x:0,y:0,tx:0,ty:0,radius:18,alpha:1,flashTimer:0,heading:0}, boat:{x:0,y:0,vx:0,vy:0,w:82,h:36,pitch:0,roll:0}, pointer:{x:0,y:0,active:false}, damageCooldown:0, shake:0, shakePower:0, lanes:3 }; }
   getPlayfield(){ const w=innerWidth,h=innerHeight,width=Math.min(420,w-24),left=(w-width)/2; return {left,right:left+width,width,top:14,bottom:h-14}; }
   bind(){ addEventListener('resize',()=>this.resize()); addEventListener('pointermove',(e)=>this.trackPointer(e)); addEventListener('pointerdown',(e)=>{this.state.pointer.active=true;this.trackPointer(e);}); addEventListener('pointerup',()=>this.state.pointer.active=false); this.startBtn.addEventListener('click',()=>this.startGame()); }
   trackPointer(e){ this.state.pointer.x=e.clientX; this.state.pointer.y=e.clientY-100; }
   resize(){ this.scene3d.resize(); if(!this.state.running) this.resetEntities(); }
-  resetEntities(){ const s=this.state,w=innerWidth,h=innerHeight; s.fish.x=w*0.5;s.fish.y=h*0.74;s.fish.tx=s.fish.x;s.fish.ty=s.fish.y; s.boat.x=w*0.5;s.boat.y=h*0.88;s.boat.vx=0;s.boat.vy=0; s.pointer.x=s.fish.x;s.pointer.y=s.fish.y;s.obstacles=[]; }
+  resetEntities(){ const s=this.state,w=innerWidth,h=innerHeight; s.fish.x=w*0.5;s.fish.y=h*0.74;s.fish.tx=s.fish.x;s.fish.ty=s.fish.y;s.fish.heading=0; s.boat.x=w*0.5;s.boat.y=h*0.88;s.boat.vx=0;s.boat.vy=0;s.boat.pitch=0;s.boat.roll=0; s.pointer.x=s.fish.x;s.pointer.y=s.fish.y;s.obstacles=[]; }
   spawnObstacle(){ const pf=this.getPlayfield(),lane=Math.floor(Math.random()*this.state.lanes),center=pf.left+(lane+0.5)*(pf.width/this.state.lanes),y=-90-Math.random()*120; if(Math.random()<0.55) this.state.obstacles.push(new Whirlpool(center+(Math.random()-0.5)*24,y,24+Math.random()*16)); else this.state.obstacles.push({type:'debris',x:center+(Math.random()-0.5)*32,y,w:42+Math.random()*52,h:20+Math.random()*22,angle:(Math.random()-0.5)*0.35}); }
   takeDamage(){ const s=this.state;if(s.damageCooldown>0) return; s.health-=1;s.damageCooldown=0.55;s.fish.flashTimer=2;s.shake=0.22;s.shakePower=12; }
   update(dt){ const s=this.state;if(!s.running) return; const h=innerHeight,pf=this.getPlayfield(); s.score+=(s.worldSpeed*dt)/10; s.spawnTimer-=dt; if(s.spawnTimer<=0){s.spawnTimer=0.55+Math.random()*0.45; this.spawnObstacle();} s.damageCooldown=Math.max(0,s.damageCooldown-dt); s.fish.flashTimer=Math.max(0,s.fish.flashTimer-dt); s.fish.alpha=s.fish.flashTimer>0?(Math.sin((2-s.fish.flashTimer)*30)>0?1:0.5):1;
-  s.fish.tx=this.clamp(s.pointer.x,pf.left+26,pf.right-26); s.fish.ty=this.clamp(s.pointer.y,h*0.42,h-38); const ease=1-Math.exp(-8*dt); s.fish.x+=(s.fish.tx-s.fish.x)*ease; s.fish.y+=(s.fish.ty-s.fish.y)*ease;
-  const dx=s.fish.x-s.boat.x,dy=s.fish.y-s.boat.y,spring=3.9,damping=0.92; s.boat.vx+=dx*spring*dt; s.boat.vy+=(dy+18)*spring*dt; s.boat.vx*=damping; s.boat.vy*=damping; s.boat.x+=s.boat.vx*dt*60; s.boat.y+=s.boat.vy*dt*60; s.boat.x=this.clamp(s.boat.x,pf.left+24,pf.right-24); s.boat.y=this.clamp(s.boat.y,h*0.58,h-24);
+  s.fish.tx=this.clamp(s.pointer.x,pf.left+26,pf.right-26); s.fish.ty=this.clamp(s.pointer.y,h*0.42,h-38); const ease=1-Math.exp(-8*dt); s.fish.x+=(s.fish.tx-s.fish.x)*ease; s.fish.y+=(s.fish.ty-s.fish.y)*ease; const fishVx=(s.fish.tx-s.fish.x)*2.6; s.fish.heading=THREE.MathUtils.clamp(fishVx/240,-0.6,0.6);
+  const dx=s.fish.x-s.boat.x,dy=s.fish.y-s.boat.y,spring=3.9,damping=0.92; s.boat.vx+=dx*spring*dt; s.boat.vy+=(dy+18)*spring*dt; s.boat.vx*=damping; s.boat.vy*=damping; s.boat.x+=s.boat.vx*dt*60; s.boat.y+=s.boat.vy*dt*60; s.boat.x=this.clamp(s.boat.x,pf.left+24,pf.right-24); s.boat.y=this.clamp(s.boat.y,h*0.58,h-24); s.boat.roll=THREE.MathUtils.clamp(-s.boat.vx/280,-0.35,0.35); s.boat.pitch=THREE.MathUtils.clamp(s.boat.vy/420,-0.2,0.2);
   const boatR=Math.max(s.boat.w,s.boat.h)*0.38; s.obstacles=s.obstacles.filter(o=>o.y<h+160); for(const o of s.obstacles){ if(o.type==='whirlpool'){o.update(dt,s.worldSpeed); if(this.circleHit(s.boat.x,s.boat.y,boatR,o.x,o.y,o.radius)||this.circleHit(s.fish.x,s.fish.y,s.fish.radius,o.x,o.y,o.radius*0.8)) this.takeDamage();} else {o.y += s.worldSpeed*dt; if(this.circleRectHit(s.boat.x,s.boat.y,boatR,o)||this.circleRectHit(s.fish.x,s.fish.y,s.fish.radius,o)) this.takeDamage();}}
   if(s.shake>0){s.shake-=dt;s.shakePower*=0.9;} if(s.health<=0){s.running=false;s.lost=true;this.showEnd(false);} this.statsEl.textContent=`Score: ${Math.floor(s.score)}m`; this.heartsEl.textContent='❤ '.repeat(Math.max(0,s.health)).trim()||'—'; }
   circleHit(ax,ay,ar,bx,by,br){const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy<(ar+br)*(ar+br);} circleRectHit(cx,cy,cr,r){const rx=r.x-r.w/2,ry=r.y-r.h/2,nx=this.clamp(cx,rx,rx+r.w),ny=this.clamp(cy,ry,ry+r.h),dx=cx-nx,dy=cy-ny;return dx*dx+dy*dy<cr*cr;}
