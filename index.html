@@ -45,8 +45,8 @@
   </div>
   <div id="message">
     <h1>Matsyavatar - The Great Deluge</h1>
-    <p>Touch and guide Matsya. The fish tracks 100px above your finger, towing Manu's boat via a momentum rope.</p>
-    <button id="startBtn">Start Voyage</button>
+    <p id="statusText">Loading divine icons…</p><p>Touch and guide Matsya. The fish tracks 100px above your finger, towing Manu's boat via a momentum rope.</p>
+    <button id="startBtn" disabled>Start Voyage</button>
   </div>
 
   <script type="module">
@@ -292,6 +292,18 @@ class Scene3D {
     this.renderer.toneMappingExposure = cfg.postFX ? 1 : 0.9;
     this.renderer.render(this.scene, this.camera);
   }
+  applySvgDecals(matsyaImg, boatImg) {
+    const mkTex = (img) => {
+      const tex = new THREE.Texture(img);
+      tex.needsUpdate = true;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    };
+    if (matsyaImg) this.assets.materials.fishBody.map = mkTex(matsyaImg);
+    if (boatImg) this.assets.materials.carvedWood.map = mkTex(boatImg);
+    this.assets.materials.fishBody.needsUpdate = true;
+    this.assets.materials.carvedWood.needsUpdate = true;
+  }
 }
 
 class Game {
@@ -303,9 +315,22 @@ class Game {
     this.startBtn = document.getElementById('startBtn');
     this.state = this.createState();
     this.scene3d = new Scene3D(this.canvas, this.state, () => this.getPlayfield());
-    this.bind(); this.resize(); requestAnimationFrame((t) => this.loop(t));
+    this.assets={matsya:null,boat:null,ready:false}; this.bind(); this.resize(); this.preloadAssets().finally(()=>requestAnimationFrame((t) => this.loop(t)));
   }
   createState() { return { running:false, won:false, lost:false, health:3, score:0, worldSpeed:190, lastTime:0, obstacles:[], rain:[], spawnTimer:0, fish:{x:0,y:0,tx:0,ty:0,radius:18,alpha:1,flashTimer:0,heading:0}, boat:{x:0,y:0,vx:0,vy:0,w:82,h:36,pitch:0,roll:0}, pointer:{x:0,y:0,active:false}, damageCooldown:0, shake:0, shakePower:0, lanes:3, spawnZ:-320, despawnZ:90 }; }
+  preloadImage(src){ return new Promise((resolve,reject)=>{ const img=new Image(); img.onload=()=>resolve(img); img.onerror=()=>reject(new Error(`Failed to load ${src}`)); img.src=src; }); }
+  async preloadAssets(){
+    const status=document.getElementById('statusText');
+    try{
+      const [matsya,boat]=await Promise.all([this.preloadImage('assets/matsya.svg'),this.preloadImage('assets/boat-seven-rishis.svg')]);
+      this.assets.matsya=matsya; this.assets.boat=boat; this.assets.ready=true;
+      this.scene3d.applySvgDecals(matsya,boat);
+      if(status) status.textContent='Assets loaded. Begin voyage!';
+    }catch(err){
+      console.warn(err);
+      if(status) status.textContent='SVG load failed; using base materials.';
+    }finally{ this.startBtn.disabled=false; }
+  }
   getPlayfield(){ const w=innerWidth,h=innerHeight,width=Math.min(420,w-24),left=(w-width)/2; return {left,right:left+width,width,top:14,bottom:h-14}; }
   bind(){ addEventListener('resize',()=>this.resize()); addEventListener('pointermove',(e)=>this.trackPointer(e)); addEventListener('pointerdown',(e)=>{this.state.pointer.active=true;this.trackPointer(e);}); addEventListener('pointerup',()=>this.state.pointer.active=false); this.startBtn.addEventListener('click',()=>this.startGame()); }
   trackPointer(e){ this.state.pointer.x=e.clientX; this.state.pointer.y=e.clientY-100; }
