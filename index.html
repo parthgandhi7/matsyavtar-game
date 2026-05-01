@@ -70,13 +70,20 @@ const PERFORMANCE_TARGETS = {
 
 
 
-const ASSET_THEME = {
-  water: {
-    type: 'texture',
-    src: 'assets/water-flow.png',
-    scrollSpeedU: 0.05,
-    scrollSpeedV: 0.01
-  }
+const DEFAULT_THEME = {
+  water: { type: 'texture', texture: 'assets/water-flow.png', tint: 0x7fb8d8, scale: [6, 16], animationSpeed: { u: 0.05, v: 0.01 }, blendMode: 'normal', roughness: 0.55, metalness: 0.04 },
+  land: { fogColor: 0x0a2240, fogNear: 80, fogFar: 330 },
+  obstacles: {
+    whirlpool: { tint: 0x9ad4ff, emissive: 0x12314a, scale: 1, animationSpeed: 2.8, blendMode: 'normal' },
+    debris: { tint: 0x6a412d, scale: 1, blendMode: 'normal' },
+    prop: { tint: 0x2c4f2f, scale: 1, blendMode: 'normal' }
+  },
+  decals: { matsya: 'assets/matsya.svg', boat: 'assets/boat-seven-rishis.svg' }
+};
+const parseThemeColor = (value, fallback) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') return Number.parseInt(value.replace('#', '0x'), 16) || fallback;
+  return fallback;
 };
 class QualityManager {
   constructor() {
@@ -124,7 +131,7 @@ function loadTextureAsset(url) {
   });
 }
 class Scene3D {
-  constructor(canvas, state, getPlayfield) {
+  constructor(canvas, state, getPlayfield, theme = DEFAULT_THEME) {
     this.canvas = canvas; this.state = state; this.getPlayfield = getPlayfield;
     this.quality = new QualityManager();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.config.antialias, alpha: false });
@@ -132,7 +139,10 @@ class Scene3D {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x0a2240, 80, 330);
+    const fogColor = parseThemeColor(theme.land?.fogColor, DEFAULT_THEME.land.fogColor);
+    const fogNear = Number(theme.land?.fogNear ?? DEFAULT_THEME.land.fogNear);
+    const fogFar = Number(theme.land?.fogFar ?? DEFAULT_THEME.land.fogFar);
+    this.scene.fog = new THREE.Fog(fogColor, fogNear, fogFar);
     this.camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 600);
     this.camera.position.set(0, 26, 54);
     this.camera.lookAt(0, 8, -80);
@@ -146,8 +156,9 @@ class Scene3D {
     this.sun = sun;
     this.scene.add(sun);
 
+    this.theme = theme;
     this.assets = this.createAssetPack();
-    this.waterAsset = ASSET_THEME.water;
+    this.waterAsset = theme.water || DEFAULT_THEME.water;
     this.waterTexture = null;
     const waterGeo = new THREE.PlaneGeometry(340, 1200, 64, 64);
     this.water = new THREE.Mesh(waterGeo, this.createFallbackWaterMaterial());
@@ -168,7 +179,7 @@ class Scene3D {
 
     this.maxWhirlpools = 28;
     this.whirlpoolPool = Array.from({ length: this.maxWhirlpools }, () => {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.12, 10, 28), new THREE.MeshStandardMaterial({ color: 0x9ad4ff, emissive: 0x12314a }));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.12, 10, 28), new THREE.MeshStandardMaterial({ color: parseThemeColor(theme.obstacles?.whirlpool?.tint, DEFAULT_THEME.obstacles.whirlpool.tint), emissive: parseThemeColor(theme.obstacles?.whirlpool?.emissive, DEFAULT_THEME.obstacles.whirlpool.emissive) }));
       ring.rotation.x = Math.PI / 2;
       ring.visible = false;
       this.scene.add(ring);
@@ -177,14 +188,14 @@ class Scene3D {
 
     this.maxDebris = 120;
     const debrisGeo = new THREE.BoxGeometry(1, 0.45, 0.5);
-    const debrisMat = new THREE.MeshStandardMaterial({ color: 0x6a412d, roughness: 0.9 });
+    const debrisMat = new THREE.MeshStandardMaterial({ color: parseThemeColor(theme.obstacles?.debris?.tint, DEFAULT_THEME.obstacles.debris.tint), roughness: 0.9 });
     this.debrisInst = new THREE.InstancedMesh(debrisGeo, debrisMat, this.maxDebris);
     this.debrisInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.scene.add(this.debrisInst);
 
     this.maxProps = 80;
     const propGeo = new THREE.CylinderGeometry(0.25, 0.25, 4, 6);
-    const propMat = new THREE.MeshStandardMaterial({ color: 0x2c4f2f, roughness: 0.9 });
+    const propMat = new THREE.MeshStandardMaterial({ color: parseThemeColor(theme.obstacles?.prop?.tint, DEFAULT_THEME.obstacles.prop.tint), roughness: 0.9 });
     this.propsInst = new THREE.InstancedMesh(propGeo, propMat, this.maxProps);
     this.scene.add(this.propsInst);
   }
@@ -253,15 +264,15 @@ class Scene3D {
   }
   initWaterAsset() {
     if (!this.waterAsset) return;
-    if (this.waterAsset.type === 'texture' && this.waterAsset.src) {
-      loadTextureAsset(this.waterAsset.src)
+    if (this.waterAsset.type === 'texture' && this.waterAsset.texture) {
+      loadTextureAsset(this.waterAsset.texture)
         .then((texture) => {
           this.waterTexture = texture;
           this.water.material = new THREE.MeshStandardMaterial({
             map: texture,
-            color: 0x7fb8d8,
-            roughness: 0.55,
-            metalness: 0.04
+            color: parseThemeColor(this.waterAsset.tint, DEFAULT_THEME.water.tint),
+            roughness: Number(this.waterAsset.roughness ?? DEFAULT_THEME.water.roughness),
+            metalness: Number(this.waterAsset.metalness ?? DEFAULT_THEME.water.metalness)
           });
         })
         .catch((err) => {
@@ -290,9 +301,11 @@ class Scene3D {
   render(dt) {
     const s = this.state;
     this.water.position.z = (this.water.position.z + s.worldSpeed * dt * 0.12) % 50 - 25;
+    const scale = this.waterAsset.scale || DEFAULT_THEME.water.scale;
+    if (Array.isArray(scale) && scale.length === 2 && this.waterTexture) this.waterTexture.repeat.set(scale[0], scale[1]);
     if (this.waterTexture) {
-      this.waterTexture.offset.x += (this.waterAsset.scrollSpeedU || 0) * dt;
-      this.waterTexture.offset.y += (this.waterAsset.scrollSpeedV || 0) * dt;
+      this.waterTexture.offset.x += ((this.waterAsset.animationSpeed?.u ?? DEFAULT_THEME.water.animationSpeed.u) || 0) * dt;
+      this.waterTexture.offset.y += ((this.waterAsset.animationSpeed?.v ?? DEFAULT_THEME.water.animationSpeed.v) || 0) * dt;
     }
 
     const fishW = this.toWorld(s.fish.x, s.fish.y);
@@ -335,20 +348,23 @@ class Scene3D {
       if (o.type === 'whirlpool' && whirlIndex < this.maxWhirlpools) {
         const ring = this.whirlpoolPool[whirlIndex++];
         ring.visible = true;
-        ring.scale.setScalar(o.radius / 18);
+        const whirlScale = Number(this.theme.obstacles?.whirlpool?.scale ?? DEFAULT_THEME.obstacles.whirlpool.scale);
+        ring.scale.setScalar((o.radius / 18) * whirlScale);
         ring.rotation.z = o.spin;
         ring.position.copy(p);
       } else if (debrisIndex < this.maxDebris) {
         dummy.position.copy(p);
         dummy.rotation.set(0, 0, o.angle);
-        dummy.scale.set(o.w / 14, 1, (o.d || o.h) / 14);
+        const debrisScale = Number(this.theme.obstacles?.debris?.scale ?? DEFAULT_THEME.obstacles.debris.scale);
+        dummy.scale.set((o.w / 14) * debrisScale, 1, ((o.d || o.h) / 14) * debrisScale);
         dummy.updateMatrix();
         this.debrisInst.setMatrixAt(debrisIndex++, dummy.matrix);
       }
       if (propIndex < this.maxProps && (Math.abs(o.x - innerWidth * 0.5) > 90)) {
         dummy.position.set(p.x * 0.12, -6, p.z);
         dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(1, 1 + cfg.particleDensity, 1);
+        const propScale = Number(this.theme.obstacles?.prop?.scale ?? DEFAULT_THEME.obstacles.prop.scale);
+        dummy.scale.set(propScale, (1 + cfg.particleDensity) * propScale, propScale);
         dummy.updateMatrix();
         this.propsInst.setMatrixAt(propIndex++, dummy.matrix);
       }
@@ -383,21 +399,35 @@ class Game {
     this.messageEl = document.getElementById('message');
     this.startBtn = document.getElementById('startBtn');
     this.state = this.createState();
-    this.scene3d = new Scene3D(this.canvas, this.state, () => this.getPlayfield());
-    this.assets={matsya:null,boat:null,ready:false}; this.bind(); this.resize(); this.preloadAssets().finally(()=>requestAnimationFrame((t) => this.loop(t)));
+    this.theme = structuredClone(DEFAULT_THEME);
+    this.scene3d = new Scene3D(this.canvas, this.state, () => this.getPlayfield(), this.theme);
+    this.assets={matsya:null,boat:null,ready:false}; this.bind(); this.resize(); this.loadTheme(this.theme).finally(()=>requestAnimationFrame((t) => this.loop(t)));
   }
   createState() { return { running:false, won:false, lost:false, health:3, score:0, worldSpeed:190, lastTime:0, obstacles:[], rain:[], spawnTimer:0, fish:{x:0,y:0,tx:0,ty:0,radius:18,alpha:1,flashTimer:0,heading:0}, boat:{x:0,y:0,vx:0,vy:0,w:82,h:36,pitch:0,roll:0}, pointer:{x:0,y:0,active:false}, damageCooldown:0, shake:0, shakePower:0, lanes:3, spawnZ:-320, despawnZ:90 }; }
   preloadImage(src){ return new Promise((resolve,reject)=>{ const img=new Image(); img.onload=()=>resolve(img); img.onerror=()=>reject(new Error(`Failed to load ${src}`)); img.src=src; }); }
-  async preloadAssets(){
+  async loadTheme(manifest){
     const status=document.getElementById('statusText');
     try{
-      const [matsya,boat]=await Promise.all([this.preloadImage('assets/matsya.svg'),this.preloadImage('assets/boat-seven-rishis.svg')]);
+      if(status) status.textContent='Loading theme manifest (1/3)…';
+      const response = await fetch('assets/theme-default.json');
+      if (!response.ok) throw new Error(`Theme manifest load failed (${response.status})`);
+      const remoteManifest = await response.json();
+      this.theme = { ...DEFAULT_THEME, ...remoteManifest, obstacles: { ...DEFAULT_THEME.obstacles, ...(remoteManifest.obstacles || {}) }, decals: { ...DEFAULT_THEME.decals, ...(remoteManifest.decals || {}) } };
+      this.scene3d.theme = this.theme;
+      this.scene3d.waterAsset = this.theme.water || DEFAULT_THEME.water;
+      this.scene3d.initWaterAsset();
+      if(status) status.textContent='Loading themed decals (2/3)…';
+      const [matsya,boat]=await Promise.all([this.preloadImage(this.theme.decals.matsya),this.preloadImage(this.theme.decals.boat)]);
       this.assets.matsya=matsya; this.assets.boat=boat; this.assets.ready=true;
       this.scene3d.applySvgDecals(matsya,boat);
-      if(status) status.textContent='Assets loaded. Begin voyage!';
+      if(status) status.textContent='Theme ready. Begin voyage!';
     }catch(err){
       console.warn(err);
-      if(status) status.textContent='SVG load failed; using base materials.';
+      this.theme = structuredClone(manifest || DEFAULT_THEME);
+      this.scene3d.theme = this.theme;
+      this.scene3d.waterAsset = this.theme.water || DEFAULT_THEME.water;
+      this.scene3d.initWaterAsset();
+      if(status) status.textContent=`Theme load error: ${err.message}. Using procedural fallback visuals.`;
     }finally{ this.startBtn.disabled=false; }
   }
   getPlayfield(){ const w=innerWidth,h=innerHeight,width=Math.min(420,w-24),left=(w-width)/2; return {left,right:left+width,width,top:14,bottom:h-14}; }

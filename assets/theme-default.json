@@ -1,0 +1,45 @@
+{
+  "water": {
+    "type": "texture",
+    "texture": "assets/water-flow.png",
+    "tint": "#7fb8d8",
+    "scale": [6, 16],
+    "animationSpeed": { "u": 0.05, "v": 0.01 },
+    "blendMode": "normal",
+    "roughness": 0.55,
+    "metalness": 0.04
+  },
+  "land": {
+    "fogColor": "#0a2240",
+    "fogNear": 80,
+    "fogFar": 330,
+    "ambient": { "sky": "#a4d7ff", "ground": "#12304a", "intensity": 0.75 }
+  },
+  "obstacles": {
+    "whirlpool": {
+      "tint": "#9ad4ff",
+      "emissive": "#12314a",
+      "scale": 1,
+      "animationSpeed": 2.8,
+      "blendMode": "normal"
+    },
+    "debris": {
+      "texture": "",
+      "tint": "#6a412d",
+      "scale": 1,
+      "animationSpeed": 0,
+      "blendMode": "normal"
+    },
+    "prop": {
+      "texture": "",
+      "tint": "#2c4f2f",
+      "scale": 1,
+      "animationSpeed": 0,
+      "blendMode": "normal"
+    }
+  },
+  "decals": {
+    "matsya": "assets/matsya.svg",
+    "boat": "assets/boat-seven-rishis.svg"
+  }
+}
